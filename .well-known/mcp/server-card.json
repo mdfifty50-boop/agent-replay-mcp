@@ -1,0 +1,44 @@
+{
+  "serverInfo": {
+    "name": "agent-replay-mcp",
+    "version": "0.1.0",
+    "description": "Agent session recording and replay — debug non-deterministic agent behavior with session comparison and divergence detection",
+    "author": "THRONE AI",
+    "license": "MIT",
+    "homepage": "https://github.com/mdfifty50-boop/agent-replay-mcp",
+    "repository": "https://github.com/mdfifty50-boop/agent-replay-mcp"
+  },
+  "capabilities": {
+    "tools": [
+      { "name": "record_session", "description": "Start recording all actions for an agent session" },
+      { "name": "stop_recording", "description": "Stop recording and return session summary with action breakdown" },
+      { "name": "log_action", "description": "Log a single action with input, output, reasoning, and timing" },
+      { "name": "replay_session", "description": "Replay a recorded session step by step with full action detail" },
+      { "name": "compare_sessions", "description": "Behavioral diff between two sessions with step-by-step alignment" },
+      { "name": "find_divergence_point", "description": "Find where an agent first deviated from expected output" },
+      { "name": "export_session", "description": "Export session as JSON or markdown transcript" }
+    ],
+    "resources": [
+      { "uri": "agent-replay://sessions", "description": "List all recorded sessions with status and action counts" }
+    ]
+  },
+  "categories": ["debugging", "observability", "developer-tools", "agentic-engineering"],
+  "keywords": ["agent-replay", "session-recording", "agent-debugging", "divergence-detection", "session-comparison", "ai-agent", "observability"],
+  "pricing": {
+    "free_tier": true,
+    "free_limit": "Unlimited sessions, in-memory only",
+    "pro": "$99/month — persistent storage, session search, webhook alerts",
+    "enterprise": "$499/month — SSO, audit logs, team collaboration"
+  },
+  "install": {
+    "npm": "npx agent-replay-mcp",
+    "claude_desktop": {
+      "mcpServers": {
+        "agent-replay": {
+          "command": "npx",
+          "args": ["agent-replay-mcp"]
+        }
+      }
+    }
+  }
+}
