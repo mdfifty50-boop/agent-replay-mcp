@@ -2,6 +2,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import {
+  createSession,
+  getSession,
+  updateSessionStatus,
+  listSessions,
+  insertEvent,
+  getEvents,
+} from './db.js';
 
 const server = new McpServer({
   name: 'agent-replay-mcp',
@@ -9,12 +17,10 @@ const server = new McpServer({
   description: 'Agent session recording and replay — debug non-deterministic behavior with session comparison and divergence detection',
 });
 
-const sessions = new Map();
 let counter = 0;
 const genId = () => `sess_${Date.now()}_${++counter}`;
 const txt = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const err = (msg, extra) => txt({ error: msg, ...extra });
-const getSession = (id) => sessions.get(id);
 const summarize = (actions) => {
   const types = {}; let dur = 0;
   for (const a of actions) { types[a.action_type] = (types[a.action_type] || 0) + 1; dur += a.duration_ms || 0; }
@@ -31,7 +37,7 @@ server.tool(
   async ({ agent_id, metadata }) => {
     const session_id = genId();
     const started_at = new Date().toISOString();
-    sessions.set(session_id, { session_id, agent_id, metadata, status: 'recording', started_at, stopped_at: null, actions: [] });
+    createSession({ session_id, agent_id, metadata, status: 'recording', started_at });
     return txt({ session_id, agent_id, status: 'recording', started_at });
   }
 );
@@ -44,10 +50,11 @@ server.tool(
     const s = getSession(session_id);
     if (!s) return err('Session not found', { session_id });
     if (s.status !== 'recording') return err('Session is not recording', { status: s.status });
-    s.status = 'stopped';
-    s.stopped_at = new Date().toISOString();
-    const { types, dur } = summarize(s.actions);
-    return txt({ session_id, agent_id: s.agent_id, status: 'stopped', action_count: s.actions.length, total_duration_ms: dur, action_type_breakdown: types, started_at: s.started_at, stopped_at: s.stopped_at });
+    const stopped_at = new Date().toISOString();
+    updateSessionStatus(session_id, 'stopped', stopped_at);
+    const actions = getEvents(session_id);
+    const { types, dur } = summarize(actions);
+    return txt({ session_id, agent_id: s.agent_id, status: 'stopped', action_count: actions.length, total_duration_ms: dur, action_type_breakdown: types, started_at: s.started_at, stopped_at });
   }
 );
 
@@ -66,9 +73,8 @@ server.tool(
     const s = getSession(session_id);
     if (!s) return err('Session not found', { session_id });
     if (s.status !== 'recording') return err('Session is not recording', { status: s.status });
-    const step = s.actions.length + 1;
     const timestamp = new Date().toISOString();
-    s.actions.push({ step, action_type, input, output, reasoning, duration_ms, timestamp });
+    const step = insertEvent({ session_id, action_type, input, output, reasoning, duration_ms, timestamp });
     return txt({ logged: true, session_id, step, action_type, timestamp });
   }
 );
@@ -126,7 +132,6 @@ server.tool(
   async ({ session_id, expected_output }) => {
     const s = getSession(session_id);
     if (!s) return err('Session not found', { session_id });
-    // Array mode: compare step by step
     if (Array.isArray(expected_output)) {
       for (let i = 0; i < s.actions.length && i < expected_output.length; i++) {
         if (JSON.stringify(s.actions[i].output) !== JSON.stringify(expected_output[i])) {
@@ -135,7 +140,6 @@ server.tool(
       }
       return txt({ divergence_found: false, message: 'All compared steps match expected outputs', steps_compared: Math.min(s.actions.length, expected_output.length) });
     }
-    // Single value mode
     const expStr = JSON.stringify(expected_output);
     const last = s.actions[s.actions.length - 1];
     if (last && JSON.stringify(last.output) === expStr) return txt({ divergence_found: false, message: 'Final output matches expected value' });
@@ -173,9 +177,9 @@ server.tool(
 );
 
 server.resource('sessions', 'agent-replay://sessions', async () => {
-  const list = [];
-  for (const [id, s] of sessions) list.push({ session_id: id, agent_id: s.agent_id, status: s.status, action_count: s.actions.length, started_at: s.started_at, stopped_at: s.stopped_at });
-  return { contents: [{ uri: 'agent-replay://sessions', mimeType: 'application/json', text: JSON.stringify({ total_sessions: list.length, recording: list.filter(s => s.status === 'recording').length, stopped: list.filter(s => s.status === 'stopped').length, sessions: list }, null, 2) }] };
+  const list = listSessions();
+  const out = list.map(s => ({ session_id: s.session_id, agent_id: s.agent_id, status: s.status, action_count: s.actions.length, started_at: s.started_at, stopped_at: s.stopped_at }));
+  return { contents: [{ uri: 'agent-replay://sessions', mimeType: 'application/json', text: JSON.stringify({ total_sessions: out.length, recording: out.filter(s => s.status === 'recording').length, stopped: out.filter(s => s.status === 'stopped').length, sessions: out }, null, 2) }] };
 });
 
 async function main() {
